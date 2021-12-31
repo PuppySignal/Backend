@@ -3,20 +3,31 @@ import requests
 
 from datetime import datetime, timedelta
 from fastapi.exceptions import HTTPException
-from fastapi.params import Depends
+from fastapi.params import Depends, Header
 from fastapi.routing import APIRouter
 from sqlalchemy.orm.session import Session
 
-from server.schemas import UserSchema, OAuthGoogleResponse, GoogleOAuthBody
-from server.models import UserAuth, User
+from server.schemas import UserSchema, OAuthGoogleResponse, GoogleOAuthBody, RefreshTokenResponse
+from server.models import UserAuth, User, RefreshToken
 from server.config import Settings
 from server.utils import get_db, get_settings
 
 router = APIRouter()
 
+"""
+  action_tokens must only have the next fields:
+
+  @id: Int
+  @uuid: UUIDv4
+  @phone_verified: Boolean
+
+  Not personal info should be in the token, it's only for validations purposes.
+"""
+
 # User shouldn't be allowed to access these endpoints if they're already authenticated.
 
 # TODO: rate limtier
+# TODO: DB Transaction & Rollbacks.
 
 @router.post("/google", response_model=OAuthGoogleResponse)
 async def get_auth(
@@ -61,26 +72,107 @@ async def get_auth(
         oauth_id=response_data['id'],
         user_id=new_user.id
       )
-
+      
       db.add(new_user_auth)
       db.commit()
 
       user_to_serialize = new_user
     except Exception as e:
       raise HTTPException(status_code=500, detail="User cannot be created.")
-      
     
   jwt_token = jwt.encode({
-    **UserSchema.from_orm(user_to_serialize).dict(),
+    "id": user_to_serialize.id,
     "uuid": str(user_to_serialize.uuid),
-    "exp": datetime.utcnow() + timedelta(days=7)
+    "phone_verified": user_to_serialize.validated_profile_phone_number,
+    "exp": datetime.utcnow() + timedelta(minutes=5),
+    "iat": datetime.utcnow()
     },
     settings.JWT_SECRET,
     algorithm="HS256"
   )
 
+  refresh_token_expiration_time = datetime.utcnow() + timedelta(days=31)
+  refresh_token = jwt.encode({
+    "exp": refresh_token_expiration_time,
+    "iat": datetime.utcnow()
+    },
+    settings.JWT_SECRET,
+    algorithm="HS256"
+  )
+
+  db.add(
+    RefreshToken(
+      token=refresh_token,
+      user_id=user_to_serialize.id,
+      valid_until=refresh_token_expiration_time
+    )
+  )
+
+  db.commit()
+
   return {
     "data": {
-      "token": jwt_token
+      "action_token": jwt_token,
+      "refresh_token": refresh_token
+    }
+  }
+
+# TODO: DB Transaction & Rollback.
+
+@router.post("/jwt/refresh", response_model=RefreshTokenResponse)
+async def jwt_refresh(
+  refresh_token: str = Header(...),
+  settings: Settings = Depends(get_settings),
+  db: Session = Depends(get_db)
+):
+  token = db.query(RefreshToken).filter(
+    RefreshToken.token==refresh_token
+  ).first()
+
+  actual_time = datetime.date(datetime.utcnow())
+
+  if not token:
+    raise HTTPException(status_code=404, detail="Refresh token not found.")
+  elif actual_time > token.valid_until:
+    raise HTTPException(status_code=400, detail="Expired refresh token.")
+  
+  user = token.user
+
+  db.delete(token)
+
+  access_token = jwt.encode({
+    "id": user.id,
+    "uuid": str(user.uuid),
+    "phone_verified": user.validated_profile_phone_number,
+    "exp": datetime.utcnow() + timedelta(minutes=10),
+    "iat": datetime.utcnow()
+    },
+    settings.JWT_SECRET,
+    algorithm="HS256"
+  )
+
+  new_refresh_token_expiration_time = datetime.utcnow() + timedelta(days=31)
+  new_refresh_token = jwt.encode({
+    "exp": new_refresh_token_expiration_time,
+    "iat": datetime.utcnow()
+    },
+    settings.JWT_SECRET,
+    algorithm="HS256"
+  )
+
+  db.add(
+    RefreshToken(
+      token=new_refresh_token,
+      user_id=user.id,
+      valid_until=new_refresh_token_expiration_time
+    )
+  )
+
+  db.commit()
+
+  return {
+    "data": {
+      "action_token": access_token,
+      "refresh_token": new_refresh_token
     }
   }
