@@ -29,7 +29,7 @@ router = APIRouter()
 # TODO: rate limtier
 # TODO: DB Transaction & Rollbacks.
 
-@router.post("/google", response_model=OAuthGoogleResponse)
+@router.post('/google', response_model=OAuthGoogleResponse)
 async def get_auth(
   body: GoogleOAuthBody,
   settings: Settings = Depends(get_settings),
@@ -37,17 +37,17 @@ async def get_auth(
 ):
   token: str = body.token
 
-  response = requests.get(f"https://www.googleapis.com/oauth2/v1/userinfo?alt=json&access_token={token}")
+  response = requests.get(f'https://www.googleapis.com/oauth2/v1/userinfo?alt=json&access_token={token}')
 
   if not response.ok:
-    raise HTTPException(status_code=400, detail="Invalid google token.")
+    raise HTTPException(status_code=400, detail='Invalid google token.')
 
   response_data = response.json()
 
   user_oauth = db.query(UserAuth)\
-    .filter((UserAuth.method == "GOOGLE") & (UserAuth.oauth_id == response_data['id']))\
+    .filter((UserAuth.method == 'GOOGLE') & (UserAuth.oauth_id == response_data['id']))\
     .first()
-  
+
   user_to_serialize = None
 
   if user_oauth is not None:
@@ -68,36 +68,36 @@ async def get_auth(
       db.refresh(new_user)
 
       new_user_auth = UserAuth(
-        method="GOOGLE",
+        method='GOOGLE',
         oauth_id=response_data['id'],
         user_id=new_user.id
       )
-      
+
       db.add(new_user_auth)
       db.commit()
 
       user_to_serialize = new_user
     except Exception as e:
-      raise HTTPException(status_code=500, detail="User cannot be created.")
-    
+      raise HTTPException(status_code=500, detail='User cannot be created.')
+
   jwt_token = jwt.encode({
-    "id": user_to_serialize.id,
-    "uuid": str(user_to_serialize.uuid),
-    "phone_verified": user_to_serialize.validated_profile_phone_number,
-    "exp": datetime.utcnow() + timedelta(minutes=5),
-    "iat": datetime.utcnow()
+    'id': user_to_serialize.id,
+    'uuid': str(user_to_serialize.uuid),
+    'phone_verified': user_to_serialize.phone_verified,
+    'exp': datetime.utcnow() + timedelta(minutes=5),
+    'iat': datetime.utcnow()
     },
     settings.JWT_SECRET,
-    algorithm="HS256"
+    algorithm='HS256'
   )
 
   refresh_token_expiration_time = datetime.utcnow() + timedelta(days=31)
   refresh_token = jwt.encode({
-    "exp": refresh_token_expiration_time,
-    "iat": datetime.utcnow()
+    'exp': refresh_token_expiration_time,
+    'iat': datetime.utcnow()
     },
     settings.JWT_SECRET,
-    algorithm="HS256"
+    algorithm='HS256'
   )
 
   db.add(
@@ -111,15 +111,15 @@ async def get_auth(
   db.commit()
 
   return {
-    "data": {
-      "action_token": jwt_token,
-      "refresh_token": refresh_token
+    'data': {
+      'action_token': jwt_token,
+      'refresh_token': refresh_token
     }
   }
 
 # TODO: DB Transaction & Rollback.
 
-@router.post("/jwt/refresh", response_model=RefreshTokenResponse)
+@router.post('/jwt/refresh', response_model=RefreshTokenResponse)
 async def jwt_refresh(
   refresh_token: str = Header(...),
   settings: Settings = Depends(get_settings),
@@ -132,32 +132,32 @@ async def jwt_refresh(
   actual_time = datetime.date(datetime.utcnow())
 
   if not token:
-    raise HTTPException(status_code=404, detail="Refresh token not found.")
+    raise HTTPException(status_code=404, detail='Refresh token not found.')
   elif actual_time > token.valid_until:
-    raise HTTPException(status_code=400, detail="Expired refresh token.")
-  
+    raise HTTPException(status_code=400, detail='Expired refresh token.')
+
   user = token.user
 
   db.delete(token)
 
   access_token = jwt.encode({
-    "id": user.id,
-    "uuid": str(user.uuid),
-    "phone_verified": user.validated_profile_phone_number,
-    "exp": datetime.utcnow() + timedelta(minutes=10),
-    "iat": datetime.utcnow()
+    'id': user.id,
+    'uuid': str(user.uuid),
+    'phone_verified': user.phone_verified,
+    'exp': datetime.utcnow() + timedelta(minutes=10),
+    'iat': datetime.utcnow()
     },
     settings.JWT_SECRET,
-    algorithm="HS256"
+    algorithm='HS256'
   )
 
   new_refresh_token_expiration_time = datetime.utcnow() + timedelta(days=31)
   new_refresh_token = jwt.encode({
-    "exp": new_refresh_token_expiration_time,
-    "iat": datetime.utcnow()
+    'exp': new_refresh_token_expiration_time,
+    'iat': datetime.utcnow()
     },
     settings.JWT_SECRET,
-    algorithm="HS256"
+    algorithm='HS256'
   )
 
   db.add(
@@ -171,8 +171,8 @@ async def jwt_refresh(
   db.commit()
 
   return {
-    "data": {
-      "action_token": access_token,
-      "refresh_token": new_refresh_token
+    'data': {
+      'action_token': access_token,
+      'refresh_token': new_refresh_token
     }
   }
