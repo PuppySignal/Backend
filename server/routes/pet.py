@@ -38,7 +38,7 @@ def create_pet(
 ):
   # Validates image sizes, it must be less than 640x640 and must be 1:1 aspect ratio.
   # Creates the pet
-  # Assigns an empty QR to it
+  # Create a QR Code for IT (In the future, QRS should be already created and assigned to it)
   # Assigns an owner
   # Saves and upload the image
   # Assigns the image path to pet
@@ -74,8 +74,9 @@ def create_pet(
       db.add(new_pet)
       db.flush()
 
-      empty_code = db.query(Code).filter(Code.pet_id == None).first()
-      empty_code.pet_id = new_pet.id
+      code = Code(new_pet.id)
+
+      db.add(code)
 
       new_user_pet = UserPet(
         pet_id=new_pet.id,
