@@ -68,7 +68,7 @@ class CreatePetBody(BaseModel):
 class ScannedQRCodeOwnerResponse(BaseModel):
     first_name: str
     last_name: str
-    phone_number: str
+    phone_number: Optional[str]
     email: str
 
 
@@ -94,7 +94,7 @@ class PetLocationsResponse(BaseModel):
     data: List[LocationSchema]
 
 
-class ScanningPetQRCodeBody(BaseModel):
+class ScanningPetCreateLocationBody(BaseModel):
     qr_code: str
     lng: str
     lat: str
